@@ -2636,35 +2636,55 @@ function applyMapFilters(){
   $('#mapStats').innerHTML = `<b>${State.filtered.length.toLocaleString()}</b> of <b>${State.all.length.toLocaleString()}</b> records plotted.`;
 }
 
-function renderMapMarkers(){
+// Icon cache - reuse divIcons across markers with same (color, featured) combo
+// For 100k markers there are only ~10-12 unique icons, saving massive time+memory
+const _iconCache = new Map();
+function getIcon(color, featured){
+  const key = color + '|' + (featured?1:0);
+  if(_iconCache.has(key)) return _iconCache.get(key);
+  const size = featured ? 18 : 12;
+  const anchor = featured ? 9 : 6;
+  const icon = L.divIcon({
+    className:'',
+    html:`<div class="uap-marker ${featured?'featured':''}" style="color:${color};background:${color};opacity:.85"></div>`,
+    iconSize:[size, size],
+    iconAnchor:[anchor, anchor]
+  });
+  _iconCache.set(key, icon);
+  return icon;
+}
+
+async function renderMapMarkers(){
   if(!State.map)return;
   State.cluster.clearLayers();
   State.markers.clear();
   const pts = State.filtered.length?State.filtered:State.all;
-  let n = 0;
+  // Filter valid points first so we have an accurate total for progress
+  const valid = [];
   for(const c of pts){
     if(c.lat==null||c.lng==null||isNaN(c.lat)||isNaN(c.lng))continue;
-    const color = colorFor(c);
-    const icon = L.divIcon({
-      className:'',
-      html:`<div class="uap-marker ${c.featured?'featured':''}" style="color:${color};background:${color};opacity:.85"></div>`,
-      iconSize:[c.featured?18:12,c.featured?18:12],
-      iconAnchor:[(c.featured?9:6),(c.featured?9:6)]
-    });
-    const m = L.marker([c.lat,c.lng], {icon});
+    valid.push(c);
+    if(valid.length >= 100000) break; // hard cap for sanity
+  }
+
+  // Show a lightweight progress indicator if the batch is large
+  const total = valid.length;
+  const showProgress = total > 10000;
+  const stats = $('#mapStats');
+  const origStats = stats ? stats.innerHTML : '';
+
+  const CHUNK = 2000;
+  const batch = []; // accumulate per-chunk then bulk-add
+  for(let i=0; i<total; i++){
+    const c = valid[i];
+    const m = L.marker([c.lat,c.lng], {icon: getIcon(colorFor(c), c.featured)});
     m.bindPopup(()=>popupHtml(c));
     m.on('popupopen', (e)=>{
-      // Scope the query to THIS popup's element (not the first popup in the document).
-      // Using document.querySelector was a bug: after opening one popup and switching
-      // tabs, stale popup DOM could be matched and the click wouldn't fire on the
-      // intended popup.
       const popupEl = e.popup.getElement();
       if(!popupEl) return;
       const root = popupEl.querySelector('.leaflet-popup-content');
       if(!root) return;
       root.querySelectorAll('[data-act]').forEach(b=>{
-        // Clone the button to strip any prior listeners (defensive - popups can
-        // be re-opened), then wire a fresh handler to the replacement node.
         const fresh = b.cloneNode(true);
         b.parentNode.replaceChild(fresh, b);
         fresh.addEventListener('click', (ev)=>{
@@ -2675,11 +2695,26 @@ function renderMapMarkers(){
         });
       });
     });
-    State.cluster.addLayer(m);
+    batch.push(m);
     State.markers.set(c.id, m);
-    n++; if(n>30000)break; // guardrail
+
+    // Every CHUNK records, flush to cluster and yield to the browser
+    if(batch.length >= CHUNK){
+      State.cluster.addLayers(batch);
+      batch.length = 0;
+      if(showProgress && stats){
+        stats.innerHTML = `<b style="color:var(--amber)">plotting ${(i+1).toLocaleString()} / ${total.toLocaleString()}…</b>`;
+      }
+      // Yield to browser so UI repaints and stays responsive
+      await new Promise(r=>setTimeout(r,0));
+    }
   }
-  if($('#mapStats')) $('#mapStats').innerHTML = `<b>${pts.length.toLocaleString()}</b> of <b>${State.all.length.toLocaleString()}</b> records plotted.`;
+  // Flush remainder
+  if(batch.length) State.cluster.addLayers(batch);
+
+  if(stats){
+    stats.innerHTML = `<b>${pts.length.toLocaleString()}</b> of <b>${State.all.length.toLocaleString()}</b> records plotted.`;
+  }
 }
 
 function popupHtml(c){
@@ -4823,4 +4858,3 @@ window.addEventListener('DOMContentLoaded', init);
 </script>
 </body>
 </html>
- 
