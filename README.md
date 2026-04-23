@@ -4,7 +4,7 @@ A free, offline-capable UAP/UFO research terminal. 344 built-in cases,
 NUFORC analytics, mapping, FOIA search launcher. Runs entirely in your 
 browser — no accounts, no tracking, nothing uploaded anywhere.
 
-**🔭 Live tool:** https://caariunews.github.io/uap-archive/
+**🔭 Live tool:** https://mrpentestrz.github.io/uap-archive/
 
 ## Features
 - Interactive world map of 344 documented UAP/UFO cases across 49 countries
